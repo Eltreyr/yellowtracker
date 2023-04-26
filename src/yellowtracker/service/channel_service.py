@@ -2,6 +2,7 @@ import logging
 import time
 import discord
 import collections
+import re
 from datetime import datetime, timedelta
 from yellowtracker.domain.bot import Bot
 from yellowtracker.domain.track_type import TrackType
@@ -33,23 +34,28 @@ class ChannelService:
     async def track_entry(bot: Bot, channel_state: dict, channel: discord.TextChannel, user: discord.User, mvp: str, user_time: str):
         mins_ago = 0
         if user_time is not None:
-            if user_time.isnumeric():
+            valid_time = re.search("^(2[0-3]|[01]?[0-9])(:|.)([0-5]?[0-9])$", user_time)
+            if valid_time:
+                hh = int(valid_time[1])
+                mm = int(valid_time[3])
+
+                # Assign default date_now with valid timezone
+                tz = bot.TIMEZONE
+                guild_state = bot.guild_state_map[channel.guild.id]
+                if guild_state['timezone']:
+                    tz = guild_state['timezone']
+                date_now = DateUtil.get_dt_now(tz)
+
+                track_time = date_now
+                if hh > track_time.hour or (hh == track_time.hour and mm > track_time.minute):
+                    track_time -= timedelta(days=1)
+                track_time = track_time.replace(hour=hh, minute=mm)
+                print(track_time)
+                td = date_now - track_time
+                mins_ago = int(td / timedelta(minutes=1))
+            elif user_time.isnumeric():
                 mins_ago = int(user_time)
-            elif len(user_time) == 5 and user_time[2] == ':':
-                hrs_mins = user_time.split(':')
-                if len(hrs_mins) == 2 and hrs_mins[0].isnumeric() and hrs_mins[1].isnumeric():
-                    hh = int(hrs_mins[0])
-                    mm = int(hrs_mins[1])
-                    timezone = bot.TIMEZONE
-                    guild_state = bot.guild_state_map[channel.guild.id]
-                    if guild_state['timezone']:
-                        timezone = guild_state['timezone']
-                    track_time = DateUtil.get_dt_now(timezone)
-                    if hh > track_time.hour or (hh == track_time.hour and mm > track_time.minute):
-                        track_time -= timedelta(days=1)
-                    track_time = track_time.replace(hour=hh, minute=mm)
-                    td = DateUtil.get_dt_now(timezone) - track_time
-                    mins_ago = int(td / timedelta(minutes=1))
+      
         if mins_ago < 0:
             mins_ago = 0
 
@@ -309,7 +315,7 @@ class ChannelService:
                 embed.add_field(name='Name', value=TrackUtil.fmt_column(names), inline=True)
                 if track_type == TrackType.MVP:
                     embed.add_field(name='Map', value=TrackUtil.fmt_column(maps), inline=True)
-                embed.add_field(name='Remaining Time', value=TrackUtil.fmt_column(remaining_times), inline=True)
+                embed.add_field(name='Time', value=TrackUtil.fmt_column(remaining_times), inline=True)
         if len(channel_state['entry_log_list']) > 0:
             result = ''
             for entry_log in channel_state['entry_log_list']:
